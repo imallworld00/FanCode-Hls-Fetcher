@@ -1,42 +1,53 @@
 import os
 import requests
-from flask import Flask, jsonify, Response
+from flask import Flask, jsonify, Response, request
 
 app = Flask(__name__)
 
-# আপনার ফ্যানকোড অ্যাকাউন্ট থেকে আনা টোকেনটি এখানে বসাবেন
-# অথবা গিটহাব/রেন্ডার এনভায়রনমেন্ট ভ্যারিয়েবলে (REFRESH_TOKEN) সেট করবেন
 FANCODE_REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN", "আপনার_ফ্যানকোড_রিফ্রেশ_টোকেন_এখানে_দিন")
 
 def get_live_fancode_streams():
-    """ফ্যানকোড সার্ভার থেকে রিয়েল-টাইমে লাইভ ম্যাচ ও M3U8 লিংক স্ক্র্যাপ করার ফাংশন"""
+    """ফ্যানকোড সার্ভার থেকে রিয়েল-টাইমে লাইভ ম্যাচের লিস্ট স্ক্র্যাপ করার ফাংশন"""
     try:
         headers = {
             "Authorization": f"Bearer {FANCODE_REFRESH_TOKEN}",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
         
-        # ফ্যানকোডের আসল এপিআই এন্ডপয়েন্ট (যেখান থেকে ম্যাচের জেসন ডেটা আসে)
+        # ফ্যানকোডের আসল লাইভ ম্যাচ এপিআই (কাল্পনিক এন্ডপয়েন্ট)
         api_url = "https://fancode.com" 
         response = requests.get(api_url, headers=headers, timeout=10)
         
         if response.status_code == 200:
             return response.json() 
         else:
-            # যদি এপিআই এখনো কাজ না করে, তবে সার্ভার ক্র্যাশ না করিয়ে একটি ডেমো লিস্ট রিটার্ন করবে
+            # এপিআই রেসপন্স না দিলে ডেমো হিসেবে ফুটবল ও ক্রিকেট দুটি ম্যাচই রিটার্ন করবে টেস্ট করার জন্য
             return [
                 {
-                    "title": "Live Cricket Match 1",
+                    "title": "Real Madrid vs Barcelona",
+                    "type": "football",
+                    "thumbnail": "https://example.com",
+                    "stream_url": "https://google.com"
+                },
+                {
+                    "title": "Bangladesh vs India Cricket",
+                    "type": "cricket",
                     "thumbnail": "https://example.com",
                     "stream_url": "https://google.com"
                 }
             ]
             
     except Exception as e:
-        # কোনো কারণে এরর আসলে ডেমো সচল ডেটা দেবে যাতে রেন্ডার সার্ভার বন্ধ না হয়
         return [
             {
-                "title": "Default Live Match",
+                "title": "Real Madrid vs Barcelona",
+                "type": "football",
+                "thumbnail": "https://example.com",
+                "stream_url": "https://google.com"
+            },
+            {
+                "title": "Bangladesh vs India Cricket",
+                "type": "cricket",
                 "thumbnail": "https://example.com",
                 "stream_url": "https://google.com"
             }
@@ -48,13 +59,25 @@ def home():
 
 @app.route('/matches')
 def matches():
-    """অ্যাডমিন প্যানেলের জন্য JSON API এন্ডপয়েন্ট"""
+    """অ্যাডমিন প্যানেলের জন্য ফিল্টারযুক্ত JSON API এন্ডপয়েন্ট"""
     data = get_live_fancode_streams()
+    
+    # URL থেকে 'search' কী-ওয়ার্ড খুঁজে বের করবে (যেমন: ?search=football)
+    search_query = request.args.get('search', '').lower()
+    
+    if search_query and isinstance(data, list):
+        # ইউজারের সার্চ কি-ওয়ার্ডের সাথে মিলিয়ে ম্যাচ ফিল্টার করবে
+        filtered_matches = [
+            match for match in data 
+            if search_query in match.get("title", "").lower() or search_query in match.get("type", "").lower()
+        ]
+        return jsonify(filtered_matches)
+        
     return jsonify(data)
 
 @app.route('/playlist.m3u')
 def playlist():
-    """IPTV বা অ্যাডমিন প্যানেলের জন্য অটো-আপডেটেড M3U প্লেলিস্ট"""
+    """IPTV বা অটো-আপডেটেড M3U প্লেলিস্ট"""
     data = get_live_fancode_streams()
     
     m3u_content = "#EXTM3U\n"
